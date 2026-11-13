@@ -1,0 +1,53 @@
+name: Build module APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply font settings overlay
+        run: |
+          test -f font_settings_overlay.zip
+          rm -rf _overlay && mkdir _overlay
+          unzip -q -o font_settings_overlay.zip -d _overlay
+          cp -R _overlay/app/. app/
+          echo "Applied font settings overlay:"
+          git diff --stat
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platform-tools" "build-tools;36.0.0" "platforms;android-37" || true
+          if [ ! -d "$ANDROID_HOME/platforms/android-37" ]; then
+            sdkmanager "platforms;android-36" || true
+            sed -i 's/compileSdk = 37/compileSdk = 36/' app/build.gradle.kts
+            echo "android.suppressUnsupportedCompileSdk=36" >> gradle.properties
+            echo "Fallback: compileSdk 36"
+          fi
+
+      - name: Build release APK
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: wetype-ui-enhanced-font-settings
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
